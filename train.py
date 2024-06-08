@@ -35,10 +35,10 @@ except ImportError:
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree)
     neural_renderer = NeuralRendererModel().to(device="cuda")
+    gaussians = GaussianModel(dataset.sh_degree, neural_renderer)
     scene = Scene(dataset, gaussians)
-    gaussians.training_setup(opt, neural_renderer)
+    gaussians.training_setup(opt)
     ema_neural_renderer = ExponentialMovingAverage(neural_renderer.parameters(), decay=0.95)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -96,6 +96,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         total_loss = loss + dist_loss + normal_loss
 
         if iteration >= 120:
+        #if iteration >= 1:
             sdfs, _, _, _, eikonal_sdf_gradients = neural_renderer.forward_sigma(gaussians.get_xyz, use_sdf_sigma_grad=True)
             sdf_loss = 0.1 * sdfs.abs().mean()
             lambda_eikonal = 0.001 * (0.01 / 0.001) ** min((iteration - 120) / 60, 1)

@@ -224,10 +224,9 @@ class NeuralRendererModel(nn.Module):
         }
 
     # optimizer utils
-    def get_params(self, lr, plr=0, slr=0, elr=0):
+    def get_params(self, lr, plr=0, slr=0):
         plr = lr if plr == 0 else plr
         slr = lr if slr == 0 else slr
-        elr = lr if elr == 0 else elr
         params = []
         params = [
             {'params': self.encoder.parameters(), 'lr': plr, "name": "encoder"},
