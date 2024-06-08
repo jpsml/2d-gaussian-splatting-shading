@@ -18,10 +18,14 @@ import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
 import uuid
+import trimesh
 from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+from neural_renderer.network import NeuralRendererModel
+from neural_renderer.utils import extract_geometry
+from torch_ema import ExponentialMovingAverage
 try:
     from torch.utils.tensorboard import SummaryWriter
     TENSORBOARD_FOUND = True
@@ -32,8 +36,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
+    neural_renderer = NeuralRendererModel().to(device="cuda")
     scene = Scene(dataset, gaussians)
-    gaussians.training_setup(opt)
+    gaussians.training_setup(opt, neural_renderer)
+    ema_neural_renderer = ExponentialMovingAverage(neural_renderer.parameters(), decay=0.95)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -54,6 +60,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     for iteration in range(first_iter, opt.iterations + 1):        
 
         iter_start.record()
+
+        neural_renderer.train()
 
         gaussians.update_learning_rate(iteration)
 
@@ -86,7 +94,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         # loss
         total_loss = loss + dist_loss + normal_loss
-        
+
+        if iteration >= 120:
+            sdfs, _, _, _, eikonal_sdf_gradients = neural_renderer.forward_sigma(gaussians.get_xyz, use_sdf_sigma_grad=True)
+            sdf_loss = 0.1 * sdfs.abs().mean()
+            lambda_eikonal = 0.001 * (0.01 / 0.001) ** min((iteration - 120) / 60, 1)
+            eikonal_loss = lambda_eikonal * ((eikonal_sdf_gradients.norm(p=2, dim=-1) - 1) ** 2).mean()
+            total_loss += sdf_loss + eikonal_loss
+
         total_loss.backward()
 
         iter_end.record()
@@ -120,7 +135,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
-
+                save_mesh(neural_renderer, os.path.join(scene.model_path, "mesh/iteration_{}/mesh.ply".format(iteration)), threshold=0)
 
             # Densification
             if iteration < opt.densify_until_iter:
@@ -137,11 +152,35 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # Optimizer step
             if iteration < opt.iterations:
                 gaussians.optimizer.step()
+                ema_neural_renderer.update()
                 gaussians.optimizer.zero_grad(set_to_none = True)
 
             if (iteration in checkpoint_iterations):
                 print("\n[ITER {}] Saving Checkpoint".format(iteration))
                 torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+
+def save_mesh(model, save_path, resolution=256, threshold=10):
+    print(f"==> Saving mesh to {save_path}")
+
+    os.makedirs(os.path.dirname(save_path), exist_ok=True)
+
+    def query_func_sdf(pts):
+        with torch.no_grad():
+            with torch.cuda.amp.autocast(enabled=False):
+                sdf = model.density(pts.to("cuda"))['sdf']
+        return -sdf
+
+    query_func = query_func_sdf
+
+    bound = 1.0
+    aabb_infer = torch.FloatTensor([-bound, -bound, -bound, bound, bound, bound])
+
+    vertices, triangles = extract_geometry(aabb_infer[:3], aabb_infer[3:], resolution=resolution, threshold=threshold, query_func=query_func)
+
+    mesh = trimesh.Trimesh(vertices, triangles, process=False) # important, process=True leads to seg fault...
+    mesh.export(save_path)
+
+    print(f"==> Finished saving mesh.")
 
 def prepare_output_and_logger(args):    
     if not args.model_path:
