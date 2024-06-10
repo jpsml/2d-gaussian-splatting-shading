@@ -19,6 +19,7 @@ from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
 import uuid
 import trimesh
+import torch.nn.functional as F
 from tqdm import tqdm
 from utils.image_utils import psnr
 from argparse import ArgumentParser, Namespace
@@ -50,10 +51,17 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
+    iter_sdf_start = 120
+    #iter_sdf_start = 1
+
     viewpoint_stack = None
     ema_loss_for_log = 0.0
     ema_dist_for_log = 0.0
     ema_normal_for_log = 0.0
+    ema_sdf_for_log = 0.0
+    ema_eikonal_for_log = 0.0
+    ema_inter_for_log = 0.0
+    ema_neumann_for_log = 0.0
 
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
@@ -92,16 +100,22 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         normal_loss = lambda_normal * (normal_error).mean()
         dist_loss = lambda_dist * (rend_dist).mean()
 
-        # loss
-        total_loss = loss + dist_loss + normal_loss
+        lambda_sdf = 0.1 if iteration >= iter_sdf_start else 0.0
+        lambda_eikonal = 0.001 * (0.01 / 0.001) ** min((iteration - iter_sdf_start) / 60, 1) if iteration >= iter_sdf_start else 0.0
+        lambda_inter = 0.01 if iteration >= iter_sdf_start else 0.0
+        lambda_neumann = 0.01 if iteration >= iter_sdf_start else 0.0
+        #lambda_neumann = 0.0
 
-        if iteration >= 120:
-        #if iteration >= 1:
-            sdfs, _, _, _, eikonal_sdf_gradients = neural_renderer.forward_sigma(gaussians.get_xyz, use_sdf_sigma_grad=True)
-            sdf_loss = 0.1 * sdfs.abs().mean()
-            lambda_eikonal = 0.001 * (0.01 / 0.001) ** min((iteration - 120) / 60, 1)
-            eikonal_loss = lambda_eikonal * ((eikonal_sdf_gradients.norm(p=2, dim=-1) - 1) ** 2).mean()
-            total_loss += sdf_loss + eikonal_loss
+        on_surf_sdfs, _, _, sdf_normals, eikonal_sdf_gradients = neural_renderer.forward_sigma(gaussians.get_xyz, use_sdf_sigma_grad=True)
+        sdf_loss = lambda_sdf * on_surf_sdfs.abs().mean()
+        eikonal_loss = lambda_eikonal * ((eikonal_sdf_gradients.norm(p=2, dim=-1) - 1) ** 2).mean()
+        off_surf_pts = torch.rand((gaussians.get_xyz.shape[0] // 2, 3), device="cuda") * 2 - 1
+        off_surf_sdfs, _, _, _, _ = neural_renderer.forward_sigma(off_surf_pts, use_sdf_sigma_grad=False)
+        inter_loss = lambda_inter * torch.exp(-1e2 * torch.abs(off_surf_sdfs)).mean()
+        neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals, gaussians.get_normals, dim=-1)[..., None]).mean()
+
+        # loss
+        total_loss = loss + dist_loss + normal_loss + sdf_loss + eikonal_loss + inter_loss + neumann_loss
 
         total_loss.backward()
 
@@ -112,6 +126,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
             ema_dist_for_log = 0.4 * dist_loss.item() + 0.6 * ema_dist_for_log
             ema_normal_for_log = 0.4 * normal_loss.item() + 0.6 * ema_normal_for_log
+            ema_sdf_for_log = 0.4 * sdf_loss.item() + 0.6 * ema_sdf_for_log
+            ema_eikonal_for_log = 0.4 * eikonal_loss.item() + 0.6 * ema_eikonal_for_log
+            ema_inter_for_log = 0.4 * inter_loss.item() + 0.6 * ema_inter_for_log
+            ema_neumann_for_log = 0.4 * neumann_loss.item() + 0.6 * ema_neumann_for_log
 
 
             if iteration % 10 == 0:
@@ -119,8 +137,13 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     "Loss": f"{ema_loss_for_log:.{5}f}",
                     "distort": f"{ema_dist_for_log:.{5}f}",
                     "normal": f"{ema_normal_for_log:.{5}f}",
+                    "sdf": f"{ema_sdf_for_log:.{5}f}",
+                    "eikonal": f"{ema_eikonal_for_log:.{5}f}",
+                    "inter": f"{ema_inter_for_log:.{5}f}",
+                    "neumann": f"{ema_neumann_for_log:.{5}f}",
                     "Points": f"{len(gaussians.get_xyz)}"
                 }
+
                 progress_bar.set_postfix(loss_dict)
 
                 progress_bar.update(10)
@@ -131,6 +154,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if tb_writer is not None:
                 tb_writer.add_scalar('train_loss_patches/dist_loss', ema_dist_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/normal_loss', ema_normal_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/sdf_loss', ema_sdf_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/eikonal_loss', ema_eikonal_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/inter_loss', ema_inter_for_log, iteration)
+                tb_writer.add_scalar('train_loss_patches/neumann_loss', ema_neumann_for_log, iteration)
 
             training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
             if (iteration in saving_iterations):

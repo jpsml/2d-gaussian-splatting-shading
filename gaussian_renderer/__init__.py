@@ -55,7 +55,6 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     means3D = pc.get_xyz
     means2D = screenspace_points
     opacity = pc.get_opacity
-    #opacity = pc.get_opacity()
 
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
@@ -83,6 +82,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     pipe.convert_SHs_python = False
     shs = None
     colors_precomp = None
+    #normals = pc.get_normals
     if override_color is None:
         if pipe.convert_SHs_python:
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
@@ -94,17 +94,44 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             shs = pc.get_features
     else:
         colors_precomp = override_color
+
+    # backface_culling = True
+    # if backface_culling:
+    #     dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+    #     cossine_product = torch.sum(normals * dir_pp, dim=1)
+
+    #     mask_view = cossine_product < 0
+    #     opacities_new = opacity[mask_view,...]
+    #     means2D_new = means2D[mask_view,...]
+    #     means3D_new = means3D[mask_view,...]
+    #     shs_new = shs[mask_view,...]
+    #     scales_new = scales[mask_view,...]
+    #     rotations_new = rotations[mask_view,...]
     
     rendered_image, radii, allmap = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
+        # means3D = means3D_new,
+        # means2D = means2D_new,
+        # shs = shs_new,
         colors_precomp = colors_precomp,
         opacities = opacity,
         scales = scales,
         rotations = rotations,
+        # opacities = opacities_new,
+        # scales = scales_new,
+        # rotations = rotations_new,
         cov3D_precomp = cov3D_precomp
     )
+
+    # visibility_filter_rendered_gaussians = radii > 0
+    # visbility_filter_all_gaussians = mask_view.clone()
+
+    # visbility_filter_all_gaussians[mask_view] = visibility_filter_rendered_gaussians
+
+    # radii_without_culled = torch.zeros_like(opacity, dtype=torch.int).squeeze()
+    # radii_without_culled[visbility_filter_all_gaussians] = radii[visibility_filter_rendered_gaussians]
     
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
@@ -112,6 +139,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             "viewspace_points": means2D,
             "visibility_filter" : radii > 0,
             "radii": radii,
+            # "visibility_filter" : visbility_filter_all_gaussians,
+            # "radii": radii_without_culled,
     }
 
 
