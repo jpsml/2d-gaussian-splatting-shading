@@ -61,6 +61,7 @@ if __name__ == "__main__":
         os.makedirs(train_dir, exist_ok=True)
         gaussExtractor.reconstruction(scene.getTrainCameras())
         gaussExtractor.export_image(train_dir)
+        gaussExtractor.extract_point_cloud_with_normals(os.path.join(train_dir, "point_clouds_with_normals"))
         
     
     if (not args.skip_test) and (len(scene.getTestCameras()) > 0):

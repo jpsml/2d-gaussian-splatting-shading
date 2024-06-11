@@ -21,7 +21,7 @@ import uuid
 import trimesh
 import torch.nn.functional as F
 from tqdm import tqdm
-from utils.image_utils import psnr
+from utils.image_utils import psnr, depth2wpos
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from neural_renderer.network import NeuralRendererModel
@@ -52,6 +52,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_end = torch.cuda.Event(enable_timing = True)
 
     iter_sdf_start = 120
+    #iter_sdf_start = 1800
     #iter_sdf_start = 1
 
     viewpoint_stack = None
@@ -106,13 +107,14 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         lambda_neumann = 0.01 if iteration >= iter_sdf_start else 0.0
         #lambda_neumann = 0.0
 
-        on_surf_sdfs, _, _, sdf_normals, eikonal_sdf_gradients = neural_renderer.forward_sigma(gaussians.get_xyz, use_sdf_sigma_grad=True)
+        on_surf_pts = depth2wpos(render_pkg['surf_depth'], viewpoint_cam).permute(1, 2, 0).reshape(-1, 3)
+        on_surf_sdfs, _, _, sdf_normals, eikonal_sdf_gradients = neural_renderer.forward_sigma(on_surf_pts, use_sdf_sigma_grad=True)
         sdf_loss = lambda_sdf * on_surf_sdfs.abs().mean()
         eikonal_loss = lambda_eikonal * ((eikonal_sdf_gradients.norm(p=2, dim=-1) - 1) ** 2).mean()
-        off_surf_pts = torch.rand((gaussians.get_xyz.shape[0] // 2, 3), device="cuda") * 2 - 1
+        off_surf_pts = torch.rand((on_surf_pts.shape[0] // 2, 3), device="cuda") * 2 - 1
         off_surf_sdfs, _, _, _, _ = neural_renderer.forward_sigma(off_surf_pts, use_sdf_sigma_grad=False)
         inter_loss = lambda_inter * torch.exp(-1e2 * torch.abs(off_surf_sdfs)).mean()
-        neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals, gaussians.get_normals, dim=-1)[..., None]).mean()
+        neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals, rend_normal.permute(1, 2, 0).reshape(-1, 3), dim=-1)[..., None]).mean()
 
         # loss
         total_loss = loss + dist_loss + normal_loss + sdf_loss + eikonal_loss + inter_loss + neumann_loss
@@ -163,6 +165,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 scene.save(iteration)
+                torch.save(neural_renderer.state_dict(), scene.model_path + "/chkpnt_neural_renderer" + str(iteration) + ".pth")
                 save_mesh(neural_renderer, os.path.join(scene.model_path, "mesh/iteration_{}/mesh.ply".format(iteration)), threshold=0)
 
             # Densification

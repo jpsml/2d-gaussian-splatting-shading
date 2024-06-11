@@ -15,7 +15,9 @@ import os
 import math
 from tqdm import tqdm
 from utils.render_utils import save_img_f32, save_img_u8
+from utils.image_utils import depth2wpos
 from functools import partial
+from scene.dataset_readers import storePly
 import open3d as o3d
 import trimesh
 
@@ -270,6 +272,16 @@ class GaussianExtractor(object):
         _, rgbs = compute_unbounded_tsdf(torch.tensor(np.asarray(mesh.vertices)).float().cuda(), inv_contraction=None, voxel_size=voxel_size, return_rgb=True)
         mesh.vertex_colors = o3d.utility.Vector3dVector(rgbs.cpu().numpy())
         return mesh
+
+    @torch.no_grad()
+    def extract_point_cloud_with_normals(self, path):
+        os.makedirs(path, exist_ok=True)
+        for idx, viewpoint_cam in tqdm(enumerate(self.viewpoint_stack), desc='save point clouds with normals'):
+            depth = self.depthmaps[idx]
+            normal = self.normals[idx]
+            pts = depth2wpos(depth, viewpoint_cam).permute(1, 2, 0).reshape(-1, 3)
+            ply_path = os.path.join(path, '{0:05d}'.format(idx) + ".ply")
+            storePly(ply_path, pts, torch.zeros(pts.shape[0], 3), normal.permute(1, 2, 0).reshape(-1, 3))
 
     @torch.no_grad()
     def export_image(self, path):
