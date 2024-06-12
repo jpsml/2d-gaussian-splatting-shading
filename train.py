@@ -38,7 +38,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     tb_writer = prepare_output_and_logger(dataset)
     neural_renderer = NeuralRendererModel().to(device="cuda")
     gaussians = GaussianModel(dataset.sh_degree, neural_renderer)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians, scene_scale=0.8)
     gaussians.training_setup(opt)
     ema_neural_renderer = ExponentialMovingAverage(neural_renderer.parameters(), decay=0.95)
     if checkpoint:
