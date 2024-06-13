@@ -37,20 +37,20 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     neural_renderer = NeuralRendererModel().to(device="cuda")
-    # state_dict = torch.load("ngp.pth", map_location="cuda")
-    # color_state = state_dict['model']
-    # net_prefix = 'color_net.'
-    # net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
-    # neural_renderer.color_net.load_state_dict(net_state)
-    # net_prefix = 'diffuse_net.'
-    # net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
-    # neural_renderer.diffuse_net.load_state_dict(net_state)
-    # net_prefix = 'renv_net.'
-    # net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
-    # try:
-    #     neural_renderer.renv_net.load_state_dict(net_state)
-    # except:
-    #     print("renv_net not found in ckpt, skip loading")
+    state_dict = torch.load("ngp_nl_2_gfd_15.pth", map_location="cuda")
+    color_state = state_dict['model']
+    net_prefix = 'color_net.'
+    net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
+    neural_renderer.color_net.load_state_dict(net_state)
+    net_prefix = 'diffuse_net.'
+    net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
+    neural_renderer.diffuse_net.load_state_dict(net_state)
+    net_prefix = 'renv_net.'
+    net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
+    try:
+        neural_renderer.renv_net.load_state_dict(net_state)
+    except:
+        print("renv_net not found in ckpt, skip loading")
     gaussians = GaussianModel(dataset.sh_degree, neural_renderer)
     scene = Scene(dataset, gaussians, scene_scale=0.8)
     gaussians.training_setup(opt)
