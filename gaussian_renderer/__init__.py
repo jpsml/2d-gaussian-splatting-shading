@@ -11,12 +11,13 @@
 
 import torch
 import math
+import torch.nn.functional as F
 from diff_surfel_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from scene.gaussian_model import GaussianModel
 from utils.sh_utils import eval_sh
 from utils.point_utils import depth_to_normal
 
-def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None):
+def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, neural_renderer = None):
     """
     Render the scene. 
     
@@ -83,8 +84,16 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     shs = None
     colors_precomp = None
     #normals = pc.get_normals
-    if override_color is None:
-        if pipe.convert_SHs_python:
+    if colors_precomp is None:
+        if pipe.brdf:
+            _, _, geo_feats, normals, _ = neural_renderer.forward_sigma(means3D, use_sdf_sigma_grad=True)
+            roughness = neural_renderer.roughness
+            view_pos = viewpoint_camera.camera_center.repeat(means3D.shape[0], 1)
+            dirs = view_pos - means3D
+            dirs = F.normalize(dirs, dim=-1)
+            normals_enc, w_r_enc, n_dot_w_o, n_env_enc = neural_renderer.get_color_mlp_extra_params(normals, dirs, roughness)
+            colors_precomp = neural_renderer.forward_color(geo_feats, dirs, normals_enc, w_r_enc, n_dot_w_o, True, n_env_enc=n_env_enc, r_images=None, roughness=roughness)
+        elif pipe.convert_SHs_python:
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
             dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)

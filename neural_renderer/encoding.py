@@ -11,6 +11,17 @@ def get_encoder(encoding, input_dim=3,
                     per_level_scale=2, base_resolution=base_resolution, 
                     log2_hashmap_size=log2_hashmap_size, desired_resolution=desired_resolution)
 
+    elif encoding == 'frequency':
+        if multires == 0:
+            return lambda x, **kwargs: x, input_dim
+        #encoder = FreqEncoder(input_dim=input_dim, max_freq_log2=multires-1, N_freqs=multires, log_sampling=True)
+        from freqencoder import FreqEncoder
+        encoder = FreqEncoder(input_dim=input_dim, degree=multires)
+
+    elif encoding == 'integrated_dir':
+        from ide_encoder import IntegratedDirEncoder
+        encoder = IntegratedDirEncoder(input_dim=input_dim, deg_view=degree)
+
     else:
         raise NotImplementedError('Unknown encoding mode')
 
