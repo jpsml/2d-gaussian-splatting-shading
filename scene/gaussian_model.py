@@ -107,6 +107,11 @@ class GaussianModel:
         normals = rotation[..., 2]
         return normals
 
+    # @property
+    # def get_normals(self):
+    #     _, _, _, normals, _ = self.neural_renderer.forward_sigma(self._xyz, use_sdf_sigma_grad=True)
+    #     return normals
+
     @property
     def get_xyz(self):
         return self._xyz
@@ -207,7 +212,8 @@ class GaussianModel:
 
         xyz = self._xyz.detach().cpu().numpy()
         #normals = np.zeros_like(xyz)
-        normals = build_rotation(self._rotation.detach()).cpu().numpy()[:, :, 2]
+        #normals = build_rotation(self._rotation.detach()).cpu().numpy()[:, :, 2]
+        normals = self.get_normals.detach().cpu().numpy()
         f_dc = self._features_dc.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         f_rest = self._features_rest.detach().transpose(1, 2).flatten(start_dim=1).contiguous().cpu().numpy()
         opacities = self._opacity.detach().cpu().numpy()

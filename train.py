@@ -121,14 +121,18 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         lambda_neumann = 0.01 if iteration >= iter_sdf_start else 0.0
         #lambda_neumann = 0.0
 
-        on_surf_pts = depth2wpos(render_pkg['surf_depth'], viewpoint_cam).permute(1, 2, 0).reshape(-1, 3)
+        unproj_pts = depth2wpos(render_pkg['surf_depth'], viewpoint_cam).permute(1, 2, 0).reshape(-1, 3)
+        on_surf_pts = torch.cat([unproj_pts, gaussians.get_xyz])
         on_surf_sdfs, _, _, sdf_normals, eikonal_sdf_gradients = neural_renderer.forward_sigma(on_surf_pts, use_sdf_sigma_grad=True)
         sdf_loss = lambda_sdf * on_surf_sdfs.abs().mean()
         eikonal_loss = lambda_eikonal * ((eikonal_sdf_gradients.norm(p=2, dim=-1) - 1) ** 2).mean()
         off_surf_pts = torch.rand((on_surf_pts.shape[0] // 2, 3), device="cuda") * 2 - 1
         off_surf_sdfs, _, _, _, _ = neural_renderer.forward_sigma(off_surf_pts, use_sdf_sigma_grad=False)
         inter_loss = lambda_inter * torch.exp(-1e2 * torch.abs(off_surf_sdfs)).mean()
-        neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals, rend_normal.permute(1, 2, 0).reshape(-1, 3), dim=-1)[..., None]).mean()
+        gaussian_normals = torch.cat([rend_normal.permute(1, 2, 0).reshape(-1, 3), gaussians.get_normals])
+        #gaussian_normals = rend_normal.permute(1, 2, 0).reshape(-1, 3)
+        neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals, gaussian_normals, dim=-1)[..., None]).mean()
+        #neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals[unproj_pts.shape[0], :], gaussian_normals, dim=-1)[..., None]).mean()
 
         # loss
         total_loss = loss + dist_loss + normal_loss + sdf_loss + eikonal_loss + inter_loss + neumann_loss
@@ -181,7 +185,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         with torch.no_grad():
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
-                scene.save(iteration)
+                with torch.enable_grad():
+                    scene.save(iteration)
                 torch.save(neural_renderer.state_dict(), scene.model_path + "/chkpnt_neural_renderer" + str(iteration) + ".pth")
                 save_mesh(neural_renderer, os.path.join(scene.model_path, "mesh/iteration_{}/mesh.ply".format(iteration)), threshold=0)
 
