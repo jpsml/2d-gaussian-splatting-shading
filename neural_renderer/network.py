@@ -222,7 +222,6 @@ class NeuralRendererModel(nn.Module):
                 init_seq(env_net, 'xavier_uniform', self.net_act)
                 return env_net
 
-            self.env_nets, self.env_net = None, None
             self.env_net = get_env_net(self.in_refdir_dim, 256, 12, 4, True)
 
             self.in_refdir_dim = 12
@@ -410,9 +409,10 @@ class NeuralRendererModel(nn.Module):
         return color
 
     # optimizer utils
-    def get_params(self, lr, plr=0, slr=0):
+    def get_params(self, lr, plr=0, slr=0, elr=0):
         plr = lr if plr == 0 else plr
         slr = lr if slr == 0 else slr
+        elr = lr if elr == 0 else elr
         params = []
         params = [
             {'params': self.encoder.parameters(), 'lr': plr, "name": "encoder"},
@@ -423,6 +423,9 @@ class NeuralRendererModel(nn.Module):
             params.append(
                 {'params': self.sdf_density.parameters(), 'lr': slr, "name": "sdf_density"},
             )
+        if self.use_env_net:
+            if self.env_net is not None:
+                params.append({'params': self.env_net.parameters(), 'lr': elr, "name": "env_net"})
 
         return params
 

@@ -295,7 +295,7 @@ class GaussianModel:
     def _prune_optimizer(self, mask):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            if group["name"] in ["encoder", "sdf_net", "sdf_density"]:
+            if group["name"] in ["encoder", "sdf_net", "sdf_density", "env_net"]:
                 continue
             stored_state = self.optimizer.state.get(group['params'][0], None)
             if stored_state is not None:
@@ -331,7 +331,7 @@ class GaussianModel:
     def cat_tensors_to_optimizer(self, tensors_dict):
         optimizable_tensors = {}
         for group in self.optimizer.param_groups:
-            if group["name"] in ["encoder", "sdf_net", "sdf_density"]:
+            if group["name"] in ["encoder", "sdf_net", "sdf_density", "env_net"]:
                 continue
             assert len(group["params"]) == 1
             extension_tensor = tensors_dict[group["name"]]
