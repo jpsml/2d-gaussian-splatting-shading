@@ -92,7 +92,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
             dirs = view_pos - means3D
             dirs = F.normalize(dirs, dim=-1)
             normals_enc, w_r_enc, n_dot_w_o, n_env_enc = neural_renderer.get_color_mlp_extra_params(normals, dirs, roughness)
-            colors_precomp = neural_renderer.forward_color(geo_feats, dirs, normals_enc, w_r_enc, n_dot_w_o, True, n_env_enc=n_env_enc, r_images=None, roughness=roughness)
+            colors_precomp = neural_renderer.forward_color(geo_feats, dirs, normals_enc, w_r_enc, n_dot_w_o, n_env_enc=n_env_enc)
         elif pipe.convert_SHs_python:
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
             dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))

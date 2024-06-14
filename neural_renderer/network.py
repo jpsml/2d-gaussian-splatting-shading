@@ -227,14 +227,6 @@ class NeuralRendererModel(nn.Module):
 
             self.in_refdir_dim = 12
 
-            self.renv_net = None
-            # TODO: consider roughness as additional input.
-            rgb_dim = 3 # + 3
-            roughness_dim = 1
-            in_renv_dim = rgb_dim + roughness_dim
-            hidden_dim_renv, num_layers_renv = 64, 4
-            self.renv_net = get_env_net(in_renv_dim, hidden_dim_renv, 12, num_layers_renv, True)
-
         color_net =  []
 
         self.n_dot_viewdir_dim = 1 if self.use_n_dot_viewdir else 0
@@ -333,7 +325,7 @@ class NeuralRendererModel(nn.Module):
             'sdf_gradients': eikonal_sdf_gradient
         }
 
-    def forward_color(self, geo_feat, d, normal=None, w_r=None, n_dot_w_o=None, use_specular_color=False, env_net_index=0, n_env_enc=None, r_images=None, roughness=None):
+    def forward_color(self, geo_feat, d, normal=None, w_r=None, n_dot_w_o=None, n_env_enc=None):
         # color
         h = geo_feat
         env_net = self.env_net
@@ -384,39 +376,6 @@ class NeuralRendererModel(nn.Module):
             else:
                 h_env = torch.cat([h, w_r], dim=-1)
             branch_dict['env'] = h_env
-
-        if r_images is not None:
-            # roughness_remap = 0.99 * torch.ones_like(roughness)
-            # renv_roughness = roughness / self.opt.roughness_scale
-            ide_roughness_thresh = 0.1
-            renv_mask = roughness.squeeze() < ide_roughness_thresh
-            if r_images.shape[-1] == 4:
-                r_vis = r_images[..., -1]
-                r_images = r_images[..., :3] * r_vis[..., None].detach()
-                renv_mask = renv_mask * (r_vis > 0.9)
-            r_images = r_images[renv_mask]
-            _roughness = roughness[renv_mask] # better keep it unscaled
-            _h = h[renv_mask]
-            roughness_remap = torch.sqrt(_roughness / 0.75) #.detach()
-            # if not self.opt.grad_rays:
-            #     roughness_remap = roughness_remap.detach()
-            # TODO: add scale here
-            blend_weight = 0.98 * self.blend_weight[renv_mask]
-
-            renv_enc = torch.cat([r_images, roughness_remap], dim=-1)
-            # renv_enc = torch.cat([r_images, r_images * (1-roughness_remap.clamp_max(0.99)), roughness_remap], dim=-1)
-            # renv_enc = torch.cat([r_images * (1-roughness_remap.clamp_max(0.99)), roughness_remap], dim=-1)
-            for l, lin in enumerate(self.renv_net):
-                renv_enc = lin(renv_enc)
-                if l != 3:
-                    renv_enc = self.net_act(renv_enc)
-
-            renv_enc = F.normalize(renv_enc, dim=-1)
-
-            # TODO: is this shape correct?
-            renv_enc = renv_enc * torch.ones_like(_h[...,:1])
-            h_renv = torch.cat([_h, renv_enc], dim=-1)
-            branch_dict['renv'] = h_renv
 
         if not branch_dict:
             branch_dict['env'] = h
