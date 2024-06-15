@@ -64,6 +64,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_sdf_start = 1800
     #iter_sdf_start = 1
 
+    iter_brdf_start = 3000
+
     viewpoint_stack = None
     ema_loss_for_log = 0.0
     ema_dist_for_log = 0.0
@@ -93,7 +95,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
 
         pipe_new = copy.deepcopy(pipe)
-        if iteration < iter_sdf_start:
+        if iteration < iter_brdf_start:
             pipe_new.brdf = False
         
         render_pkg = render(viewpoint_cam, gaussians, pipe_new, background, neural_renderer=neural_renderer)
@@ -121,7 +123,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         #lambda_neumann = 0.0
 
         unproj_pts = depth2wpos(render_pkg['surf_depth'], viewpoint_cam).permute(1, 2, 0).reshape(-1, 3)
+        #pt_mask = torch.logical_and(torch.logical_and(unproj_pts[:, 0].abs() < 1, unproj_pts[:, 1].abs() < 1), unproj_pts[:, 2].abs() < 1)
         #on_surf_pts = torch.cat([unproj_pts, gaussians.get_xyz])
+        #on_surf_pts = unproj_pts[pt_mask]
         on_surf_pts = unproj_pts
         on_surf_sdfs, _, _, sdf_normals, eikonal_sdf_gradients = neural_renderer.forward_sigma(on_surf_pts, use_sdf_sigma_grad=True)
         sdf_loss = lambda_sdf * on_surf_sdfs.abs().mean()
@@ -130,6 +134,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         off_surf_sdfs, _, _, _, _ = neural_renderer.forward_sigma(off_surf_pts, use_sdf_sigma_grad=False)
         inter_loss = lambda_inter * torch.exp(-1e2 * torch.abs(off_surf_sdfs)).mean()
         #gaussian_normals = torch.cat([rend_normal.permute(1, 2, 0).reshape(-1, 3), gaussians.get_normals])
+        #gaussian_normals = rend_normal.permute(1, 2, 0).reshape(-1, 3)[pt_mask]
         gaussian_normals = rend_normal.permute(1, 2, 0).reshape(-1, 3)
         neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals, gaussian_normals, dim=-1)[..., None]).mean()
         #neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals[unproj_pts.shape[0], :], gaussian_normals, dim=-1)[..., None]).mean()

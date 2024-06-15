@@ -88,7 +88,7 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
         if pipe.brdf:
             _, _, geo_feats, normals, _ = neural_renderer.forward_sigma(means3D, use_sdf_sigma_grad=True)
             #geo_feats = geo_feats.detach()
-            normals = normals.detach()
+            #normals = normals.detach()
             roughness = neural_renderer.roughness
             view_pos = viewpoint_camera.camera_center.repeat(means3D.shape[0], 1)
             dirs = view_pos - means3D
