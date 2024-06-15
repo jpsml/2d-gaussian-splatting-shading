@@ -20,6 +20,7 @@ from utils.general_utils import safe_state
 import uuid
 import trimesh
 import torch.nn.functional as F
+import copy
 from tqdm import tqdm
 from utils.image_utils import psnr, depth2wpos
 from argparse import ArgumentParser, Namespace
@@ -59,8 +60,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
-    iter_sdf_start = 120
-    #iter_sdf_start = 1800
+    #iter_sdf_start = 120
+    iter_sdf_start = 1800
     #iter_sdf_start = 1
 
     viewpoint_stack = None
@@ -90,8 +91,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         if not viewpoint_stack:
             viewpoint_stack = scene.getTrainCameras().copy()
         viewpoint_cam = viewpoint_stack.pop(randint(0, len(viewpoint_stack)-1))
+
+        pipe_new = copy.deepcopy(pipe)
+        if iteration < iter_sdf_start:
+            pipe_new.brdf = False
         
-        render_pkg = render(viewpoint_cam, gaussians, pipe, background, neural_renderer=neural_renderer)
+        render_pkg = render(viewpoint_cam, gaussians, pipe_new, background, neural_renderer=neural_renderer)
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
