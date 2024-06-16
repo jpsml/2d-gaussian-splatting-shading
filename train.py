@@ -34,6 +34,14 @@ try:
 except ImportError:
     TENSORBOARD_FOUND = False
 
+# @torch.jit.script
+# def linear_to_srgb(x):
+#     return torch.where(x < 0.0031308, 12.92 * x, 1.055 * x ** 0.41666 - 0.055)
+
+# @torch.jit.script
+# def srgb_to_linear(x):
+#     return torch.where(x < 0.04045, x / 12.92, ((x + 0.055) / 1.055) ** 2.4)
+
 def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoint_iterations, checkpoint):
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
@@ -105,6 +113,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
         
         gt_image = viewpoint_cam.original_image.cuda()
+        #gt_image = srgb_to_linear(gt_image)
         Ll1 = l1_loss(image, gt_image)
         loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
         
@@ -295,6 +304,7 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                         scene.gaussians.neural_renderer.eval()
                     render_pkg = renderFunc(viewpoint, scene.gaussians, neural_renderer=scene.gaussians.neural_renderer, *renderArgs)
                     #with torch.no_grad():
+                    #render_pkg["render"] = linear_to_srgb(render_pkg["render"])
                     image = torch.clamp(render_pkg["render"], 0.0, 1.0)
                     gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
                     if tb_writer and (idx < 5):
