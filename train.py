@@ -46,10 +46,12 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     net_prefix = 'diffuse_net.'
     net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
     neural_renderer.diffuse_net.load_state_dict(net_state)
+    optimizer_neural_renderer = torch.optim.Adam(neural_renderer.get_params(0.001, 0.001, 0.0001), betas=(0.9, 0.99), eps=1e-15)
+    scheduler_neural_renderer = torch.optim.lr_scheduler.LambdaLR(optimizer_neural_renderer, lambda iter: 0.1 ** min(iter / opt.iterations, 1))
+    ema_neural_renderer = ExponentialMovingAverage(neural_renderer.parameters(), decay=0.95)
     gaussians = GaussianModel(dataset.sh_degree, neural_renderer)
     scene = Scene(dataset, gaussians, scene_scale=0.8)
     gaussians.training_setup(opt)
-    ema_neural_renderer = ExponentialMovingAverage(neural_renderer.parameters(), decay=0.95)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
         gaussians.restore(model_params, opt)
@@ -82,6 +84,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         iter_start.record()
 
         neural_renderer.train()
+        optimizer_neural_renderer.zero_grad()
 
         gaussians.update_learning_rate(iteration)
 
@@ -144,6 +147,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
 
         total_loss.backward()
 
+        optimizer_neural_renderer.step()
+        scheduler_neural_renderer.step()
+        ema_neural_renderer.update()
+
         iter_end.record()
 
         with torch.no_grad():
@@ -184,10 +191,10 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                 tb_writer.add_scalar('train_loss_patches/inter_loss', ema_inter_for_log, iteration)
                 tb_writer.add_scalar('train_loss_patches/neumann_loss', ema_neumann_for_log, iteration)
 
-            #training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
+            training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
 
-        training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
-        with torch.no_grad():
+        #training_report(tb_writer, iteration, Ll1, loss, l1_loss, iter_start.elapsed_time(iter_end), testing_iterations, scene, render, (pipe, background))
+        #with torch.no_grad():
             if (iteration in saving_iterations):
                 print("\n[ITER {}] Saving Gaussians".format(iteration))
                 with torch.enable_grad():
@@ -210,7 +217,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
             # Optimizer step
             if iteration < opt.iterations:
                 gaussians.optimizer.step()
-                ema_neural_renderer.update()
                 gaussians.optimizer.zero_grad(set_to_none = True)
 
             if (iteration in checkpoint_iterations):
@@ -262,7 +268,7 @@ def prepare_output_and_logger(args):
         print("Tensorboard not available: not logging progress")
     return tb_writer
 
-#@torch.no_grad()
+@torch.no_grad()
 def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_iterations, scene : Scene, renderFunc, renderArgs):
     if tb_writer:
         tb_writer.add_scalar('train_loss_patches/reg_loss', Ll1.item(), iteration)
@@ -284,37 +290,37 @@ def training_report(tb_writer, iteration, Ll1, loss, l1_loss, elapsed, testing_i
                     if scene.gaussians.neural_renderer is not None:
                         scene.gaussians.neural_renderer.eval()
                     render_pkg = renderFunc(viewpoint, scene.gaussians, neural_renderer=scene.gaussians.neural_renderer, *renderArgs)
-                    with torch.no_grad():
-                        image = torch.clamp(render_pkg["render"], 0.0, 1.0)
-                        gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
-                        if tb_writer and (idx < 5):
-                            from utils.general_utils import colormap
-                            depth = render_pkg["surf_depth"]
-                            norm = depth.max()
-                            depth = depth / norm
-                            depth = colormap(depth.cpu().numpy()[0], cmap='turbo')
-                            tb_writer.add_images(config['name'] + "_view_{}/depth".format(viewpoint.image_name), depth[None], global_step=iteration)
-                            tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
+                    #with torch.no_grad():
+                    image = torch.clamp(render_pkg["render"], 0.0, 1.0)
+                    gt_image = torch.clamp(viewpoint.original_image.to("cuda"), 0.0, 1.0)
+                    if tb_writer and (idx < 5):
+                        from utils.general_utils import colormap
+                        depth = render_pkg["surf_depth"]
+                        norm = depth.max()
+                        depth = depth / norm
+                        depth = colormap(depth.cpu().numpy()[0], cmap='turbo')
+                        tb_writer.add_images(config['name'] + "_view_{}/depth".format(viewpoint.image_name), depth[None], global_step=iteration)
+                        tb_writer.add_images(config['name'] + "_view_{}/render".format(viewpoint.image_name), image[None], global_step=iteration)
 
-                            try:
-                                rend_alpha = render_pkg['rend_alpha']
-                                rend_normal = render_pkg["rend_normal"] * 0.5 + 0.5
-                                surf_normal = render_pkg["surf_normal"] * 0.5 + 0.5
-                                tb_writer.add_images(config['name'] + "_view_{}/rend_normal".format(viewpoint.image_name), rend_normal[None], global_step=iteration)
-                                tb_writer.add_images(config['name'] + "_view_{}/surf_normal".format(viewpoint.image_name), surf_normal[None], global_step=iteration)
-                                tb_writer.add_images(config['name'] + "_view_{}/rend_alpha".format(viewpoint.image_name), rend_alpha[None], global_step=iteration)
+                        try:
+                            rend_alpha = render_pkg['rend_alpha']
+                            rend_normal = render_pkg["rend_normal"] * 0.5 + 0.5
+                            surf_normal = render_pkg["surf_normal"] * 0.5 + 0.5
+                            tb_writer.add_images(config['name'] + "_view_{}/rend_normal".format(viewpoint.image_name), rend_normal[None], global_step=iteration)
+                            tb_writer.add_images(config['name'] + "_view_{}/surf_normal".format(viewpoint.image_name), surf_normal[None], global_step=iteration)
+                            tb_writer.add_images(config['name'] + "_view_{}/rend_alpha".format(viewpoint.image_name), rend_alpha[None], global_step=iteration)
 
-                                rend_dist = render_pkg["rend_dist"]
-                                rend_dist = colormap(rend_dist.cpu().numpy()[0])
-                                tb_writer.add_images(config['name'] + "_view_{}/rend_dist".format(viewpoint.image_name), rend_dist[None], global_step=iteration)
-                            except:
-                                pass
+                            rend_dist = render_pkg["rend_dist"]
+                            rend_dist = colormap(rend_dist.cpu().numpy()[0])
+                            tb_writer.add_images(config['name'] + "_view_{}/rend_dist".format(viewpoint.image_name), rend_dist[None], global_step=iteration)
+                        except:
+                            pass
 
-                            if iteration == testing_iterations[0]:
-                                tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
+                        if iteration == testing_iterations[0]:
+                            tb_writer.add_images(config['name'] + "_view_{}/ground_truth".format(viewpoint.image_name), gt_image[None], global_step=iteration)
 
-                        l1_test += l1_loss(image, gt_image).mean().double()
-                        psnr_test += psnr(image, gt_image).mean().double()
+                    l1_test += l1_loss(image, gt_image).mean().double()
+                    psnr_test += psnr(image, gt_image).mean().double()
 
                 psnr_test /= len(config['cameras'])
                 l1_test /= len(config['cameras'])

@@ -86,7 +86,8 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     #normals = pc.get_normals
     if colors_precomp is None:
         if pipe.brdf:
-            _, _, geo_feats, normals, _ = neural_renderer.forward_sigma(means3D, use_sdf_sigma_grad=True)
+            with torch.enable_grad():
+                _, _, geo_feats, normals, _ = neural_renderer.forward_sigma(means3D, use_sdf_sigma_grad=True)
             #geo_feats = geo_feats.detach()
             #normals = normals.detach()
             roughness = neural_renderer.roughness
