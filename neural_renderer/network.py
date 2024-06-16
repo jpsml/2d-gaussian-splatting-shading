@@ -104,18 +104,11 @@ class NeuralRendererModel(nn.Module):
         self.sdf_density = LaplaceDensity(beta_param_init, beta_min, beta_max)
         
         self.embed_dim = 0
-        self.embed_fn = None
         self.geometric_init = False
         if self.geometric_init:
             inside_outside = False # True for indoor scenes
             weight_norm = True
             bias = 1.0
-        #     multires = 6
-        #     from freqencoder import FreqEncoder
-        #     self.embed_fn = FreqEncoder(input_dim=3, degree=multires)
-        #     self.embed_dim = self.embed_fn.output_dim
-        # else:
-        #     self.embed_fn = None
         
         self.w_material = False
         self.in_roughness, self.in_metallic, self.in_base_color = 0, 0, 0
@@ -256,9 +249,6 @@ class NeuralRendererModel(nn.Module):
 
         # sigma
         x = self.encoder(xyz, bound=self.bound)
-        
-        if self.embed_fn is not None:
-            x = torch.cat([self.embed_fn(xyz), x], dim=-1)
 
         h = x
         for l in range(self.num_layers):
@@ -282,7 +272,6 @@ class NeuralRendererModel(nn.Module):
         raw_roughness = h[..., 1+self.geo_feat_dim:2+self.geo_feat_dim]
         self.blend_weight = torch.sigmoid(h[..., 2+self.geo_feat_dim:3+self.geo_feat_dim])
         self.roughness = 0.2 * self.roughness_act(raw_roughness + self.roughness_bias)
-        self.roughness = self.roughness
 
         self.metallic = 1.
 
@@ -457,8 +446,6 @@ class NeuralRendererModel(nn.Module):
             if env_rot_radian is not None:
                 w_r = w_r @ torch.from_numpy(rot_theta(env_rot_radian)[:3, :3]).float().to(w_r.device)
             w_r_enc = self.encoder_refdir(w_r, roughness=roughness)
-        if w_r_enc is not None:
-            w_r_enc = w_r_enc
         n_dot_w_o = None
         if self.use_n_dot_viewdir:
             n_dot_w_o = torch.sum(normals * w_o, dim=-1, keepdim=True)
@@ -468,8 +455,6 @@ class NeuralRendererModel(nn.Module):
         if env_rot_radian is not None:
             normals = normals @ torch.from_numpy(rot_theta(env_rot_radian)[:3, :3]).float().to(normals.device)
         n_env_enc = self.encoder_refdir(normals, roughness=0.64)
-        if n_env_enc is not None:
-            n_env_enc = n_env_enc
 
         return normals_enc, w_r_enc, n_dot_w_o, n_env_enc
     
