@@ -415,17 +415,17 @@ class NeuralRendererModel(nn.Module):
         elr = lr if elr == 0 else elr
         params = []
         params = [
-            {'params': self.encoder.parameters(), 'lr': plr, "name": "encoder"},
-            {'params': self.sdf_net.parameters(), 'lr': lr, "name": "sdf_net"},
+            {'params': self.encoder.parameters(), 'lr': plr},
+            {'params': self.sdf_net.parameters(), 'lr': lr},
             # {'params': self.encoder_dir.parameters(), 'lr': lr},
         ]
         if self.use_sdf:
             params.append(
-                {'params': self.sdf_density.parameters(), 'lr': slr, "name": "sdf_density"},
+                {'params': self.sdf_density.parameters(), 'lr': slr},
             )
         if self.use_env_net:
             if self.env_net is not None:
-                params.append({'params': self.env_net.parameters(), 'lr': elr, "name": "env_net"})
+                params.append({'params': self.env_net.parameters(), 'lr': elr})
 
         return params
 

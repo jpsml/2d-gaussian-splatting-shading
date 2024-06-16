@@ -38,6 +38,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     first_iter = 0
     tb_writer = prepare_output_and_logger(dataset)
     neural_renderer = NeuralRendererModel().to(device="cuda")
+    optimizer_neural_renderer = torch.optim.Adam(neural_renderer.get_params(0.001, 0.001, 0.0001), betas=(0.9, 0.99), eps=1e-15)
+    scheduler_neural_renderer = torch.optim.lr_scheduler.LambdaLR(optimizer_neural_renderer, lambda iter: 0.1 ** min(iter / opt.iterations, 1))
+    ema_neural_renderer = ExponentialMovingAverage(neural_renderer.parameters(), decay=0.95)
     state_dict = torch.load("ngp_nl_2_gfd_15.pth", map_location="cuda")
     color_state = state_dict['model']
     net_prefix = 'color_net.'
@@ -46,9 +49,6 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     net_prefix = 'diffuse_net.'
     net_state = {k[len(net_prefix):]: v for k, v in color_state.items() if k.startswith(net_prefix)}
     neural_renderer.diffuse_net.load_state_dict(net_state)
-    optimizer_neural_renderer = torch.optim.Adam(neural_renderer.get_params(0.001, 0.001, 0.0001), betas=(0.9, 0.99), eps=1e-15)
-    scheduler_neural_renderer = torch.optim.lr_scheduler.LambdaLR(optimizer_neural_renderer, lambda iter: 0.1 ** min(iter / opt.iterations, 1))
-    ema_neural_renderer = ExponentialMovingAverage(neural_renderer.parameters(), decay=0.95)
     gaussians = GaussianModel(dataset.sh_degree, neural_renderer)
     scene = Scene(dataset, gaussians, scene_scale=0.8)
     gaussians.training_setup(opt)
@@ -126,8 +126,9 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         #lambda_neumann = 0.0
 
         unproj_pts = depth2wpos(render_pkg['surf_depth'], viewpoint_cam).permute(1, 2, 0).reshape(-1, 3)
-        #pt_mask = torch.logical_and(torch.logical_and(unproj_pts[:, 0].abs() < 1, unproj_pts[:, 1].abs() < 1), unproj_pts[:, 2].abs() < 1)
-        on_surf_pts = torch.cat([unproj_pts, gaussians.get_xyz])
+        pt_mask = torch.logical_and(torch.logical_and(unproj_pts[:, 0].abs() < 1, unproj_pts[:, 1].abs() < 1), unproj_pts[:, 2].abs() < 1)
+        #on_surf_pts = torch.cat([unproj_pts, gaussians.get_xyz])
+        on_surf_pts = torch.cat([unproj_pts[pt_mask], gaussians.get_xyz])
         #on_surf_pts = unproj_pts[pt_mask]
         #on_surf_pts = unproj_pts
         on_surf_sdfs, _, _, sdf_normals, eikonal_sdf_gradients = neural_renderer.forward_sigma(on_surf_pts, use_sdf_sigma_grad=True)
@@ -136,7 +137,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         off_surf_pts = torch.rand((on_surf_pts.shape[0] // 2, 3), device="cuda") * 2 - 1
         off_surf_sdfs, _, _, _, _ = neural_renderer.forward_sigma(off_surf_pts, use_sdf_sigma_grad=False)
         inter_loss = lambda_inter * torch.exp(-1e2 * torch.abs(off_surf_sdfs)).mean()
-        gaussian_normals = torch.cat([rend_normal.permute(1, 2, 0).reshape(-1, 3), gaussians.get_normals])
+        #gaussian_normals = torch.cat([rend_normal.permute(1, 2, 0).reshape(-1, 3), gaussians.get_normals])
+        gaussian_normals = torch.cat([rend_normal.permute(1, 2, 0).reshape(-1, 3)[pt_mask], gaussians.get_normals])
         #gaussian_normals = rend_normal.permute(1, 2, 0).reshape(-1, 3)[pt_mask]
         #gaussian_normals = rend_normal.permute(1, 2, 0).reshape(-1, 3)
         neumann_loss = lambda_neumann * (1 - F.cosine_similarity(sdf_normals, gaussian_normals, dim=-1)[..., None]).mean()
@@ -173,6 +175,8 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     "eikonal": f"{ema_eikonal_for_log:.{5}f}",
                     "inter": f"{ema_inter_for_log:.{5}f}",
                     "neumann": f"{ema_neumann_for_log:.{5}f}",
+                    "nr lr": f"{optimizer_neural_renderer.param_groups[0]['lr']:.{5}f}",
+                    "beta": f"{neural_renderer.sdf_density.get_beta().item():.{5}f}",
                     "Points": f"{len(gaussians.get_xyz)}"
                 }
 
