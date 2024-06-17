@@ -70,11 +70,11 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
 
-    #iter_sdf_start = 120
     iter_sdf_start = 1800
     #iter_sdf_start = 1
 
     iter_brdf_start = 3000
+    #iter_brdf_start = 1
 
     viewpoint_stack = None
     ema_loss_for_log = 0.0
@@ -129,22 +129,31 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
         dist_loss = lambda_dist * (rend_dist).mean()
 
         lambda_sdf = 0.1 if iteration >= iter_sdf_start else 0.0
+        #lambda_sdf = 0.0
         lambda_eikonal = 0.001 * (0.01 / 0.001) ** min((iteration - iter_sdf_start) / 60, 1) if iteration >= iter_sdf_start else 0.0
         lambda_inter = 0.01 if iteration >= iter_sdf_start else 0.0
+        #lambda_inter = 0.0
         lambda_neumann = 0.01 if iteration >= iter_sdf_start else 0.0
         #lambda_neumann = 0.0
 
         unproj_pts = depth2wpos(render_pkg['surf_depth'], viewpoint_cam).permute(1, 2, 0).reshape(-1, 3)
         pt_mask = torch.logical_and(torch.logical_and(unproj_pts[:, 0].abs() < 1, unproj_pts[:, 1].abs() < 1), unproj_pts[:, 2].abs() < 1)
+
         #on_surf_pts = unproj_pts
         on_surf_pts = unproj_pts[pt_mask]
         on_surf_pts = torch.cat([on_surf_pts, gaussians.get_xyz])
+        #on_surf_pts = gaussians.get_xyz
+
         on_surf_sdfs, _, _, sdf_normals, eikonal_sdf_gradients = neural_renderer.forward_sigma(on_surf_pts, use_sdf_sigma_grad=True)
+
         sdf_loss = lambda_sdf * on_surf_sdfs.abs().mean()
+
         eikonal_loss = lambda_eikonal * ((eikonal_sdf_gradients.norm(p=2, dim=-1) - 1) ** 2).mean()
+
         off_surf_pts = torch.rand((on_surf_pts.shape[0] // 2, 3), device="cuda") * 2 - 1
         off_surf_sdfs, _, _, _, _ = neural_renderer.forward_sigma(off_surf_pts, use_sdf_sigma_grad=False)
         inter_loss = lambda_inter * torch.exp(-1e2 * torch.abs(off_surf_sdfs)).mean()
+
         #gaussian_normals = rend_normal.permute(1, 2, 0).reshape(-1, 3)
         gaussian_normals = rend_normal.permute(1, 2, 0).reshape(-1, 3)[pt_mask]
         gaussian_normals = torch.cat([gaussian_normals, gaussians.get_normals])
@@ -183,6 +192,7 @@ def training(dataset, opt, pipe, testing_iterations, saving_iterations, checkpoi
                     "neumann": f"{ema_neumann_for_log:.{5}f}",
                     "nr lr": f"{optimizer_neural_renderer.param_groups[0]['lr']:.{5}f}",
                     "beta": f"{neural_renderer.sdf_density.get_beta().item():.{5}f}",
+                    #"opacity_weight": f"{neural_renderer.opacity_weight.item():.{5}f}",
                     "Points": f"{len(gaussians.get_xyz)}"
                 }
 

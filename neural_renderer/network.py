@@ -102,6 +102,8 @@ class NeuralRendererModel(nn.Module):
         beta_param_init = 0.1
         beta_min, beta_max = 0.0005, 1
         self.sdf_density = LaplaceDensity(beta_param_init, beta_min, beta_max)
+
+        #self.opacity_weight = nn.Parameter(torch.tensor(1.0))
         
         self.embed_dim = 0
         self.geometric_init = False
@@ -415,6 +417,8 @@ class NeuralRendererModel(nn.Module):
         if self.use_env_net:
             if self.env_net is not None:
                 params.append({'params': self.env_net.parameters(), 'lr': elr})
+
+        #params.append({'params': self.opacity_weight, 'lr': lr})
 
         return params
 

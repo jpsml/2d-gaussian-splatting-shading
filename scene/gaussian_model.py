@@ -130,7 +130,8 @@ class GaussianModel:
     # def get_opacity(self):
     #     sdfs, _, _ = self.neural_renderer.forward_geometry(self.get_xyz)
     #     sigmas = self.neural_renderer.sdf_density(sdfs)
-    #     return sigmas.unsqueeze(1)
+    #     sigmas = sigmas.unsqueeze(1)
+    #     return self.neural_renderer.opacity_weight * (1.0 - torch.exp(-sigmas))
     
     def get_covariance(self, scaling_modifier = 1):
         return self.covariance_activation(self.get_xyz, self.get_scaling, scaling_modifier, self._rotation)
@@ -424,7 +425,6 @@ class GaussianModel:
         self.densify_and_split(grads, max_grad, extent)
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
-        #prune_mask = (self.get_opacity() < min_opacity).squeeze()
         if max_screen_size:
             big_points_vs = self.max_radii2D > max_screen_size
             big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent

@@ -57,13 +57,6 @@ def render(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, 
     means2D = screenspace_points
     opacity = pc.get_opacity
 
-    # if pipe.brdf:
-    #     sdfs, _, _ = neural_renderer.forward_geometry(means3D)
-    #     sigmas = neural_renderer.sdf_density(sdfs)
-    #     opacity = sigmas.unsqueeze(1)
-    # else:
-    #     opacity = pc.get_opacity
-
     # If precomputed 3d covariance is provided, use it. If not, then it will be computed from
     # scaling / rotation by the rasterizer.
     scales = None
